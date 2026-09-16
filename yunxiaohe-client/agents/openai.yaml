@@ -1,0 +1,8 @@
+interface:
+  display_name: "YunXiaoHe Client"
+  short_description: "Run structured YunXiaoHe research from Codex"
+  brand_color: "#6D2FA3"
+  default_prompt: "Use $yunxiaohe-client to run this task through my authorized YunXiaoHe workspace."
+
+policy:
+  allow_implicit_invocation: true
