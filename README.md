@@ -4,7 +4,14 @@ This repository contains the public `yunxiaohe-client` Skill for registered YH I
 
 The repository contains no customer credentials. A registered user signs in at [yh-intel.cn/client/](https://yh-intel.cn/client/), creates one of up to three customer-managed API keys, and enters it only in the CLI's hidden local prompt. Keys can be viewed again or disabled individually from the customer center.
 
-Ask Codex to install the `yunxiaohe-client` skill from this repository, or copy the [`yunxiaohe-client`](yunxiaohe-client/) directory into your Codex skills directory. Then invoke `$yunxiaohe-client`. The bundled CLI requires Python 3.10+ and only uses the standard library.
+## Start in five minutes
+
+1. Sign in to the [YH customer center](https://yh-intel.cn/client/) and open **Codex API keys**. Create a key; do not paste it into chat.
+2. Ask Codex: `Install the yunxiaohe-client skill from https://github.com/Henry-Hanyue-Shen/yunxiaohe-codex-skill/tree/main/yunxiaohe-client`
+3. In your own terminal, open the installed Skill directory and run `python scripts/yxh.py login`. The prompt hides your key while you type.
+4. On your next Codex turn, invoke `$yunxiaohe-client` and describe the work you want YunXiaoHe to carry out.
+
+The bundled CLI requires Python 3.10+ and uses only the standard library. For exact Windows, macOS, and Linux commands—and a complete PI → task → result walkthrough—read the [Getting Started tutorial](docs/getting-started.md).
 
 Official service: [yh-intel.cn](https://yh-intel.cn/)
 
@@ -18,4 +25,4 @@ Contact: [bot@yh-intel.com](mailto:bot@yh-intel.com) — expected response withi
 - Password changes, account reset/disable, product revocation, or manual key disable revoke access.
 - The API derives tenant identity from the token and never accepts a client-supplied tenant ID.
 
-See [`references/api.md`](yunxiaohe-client/references/api.md) for the public v1 contract.
+See the [Getting Started tutorial](docs/getting-started.md) for normal use and [`references/api.md`](yunxiaohe-client/references/api.md) for the public v1 contract.
