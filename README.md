@@ -6,7 +6,8 @@ The repository contains no customer credentials. A user authenticates interactiv
 
 Ask Codex to install the `yunxiaohe-client` skill from this repository, or copy the [`yunxiaohe-client`](yunxiaohe-client/) directory into your Codex skills directory. Then invoke `$yunxiaohe-client`. The bundled CLI requires Python 3.10+ and only uses the standard library.
 
-Official service: [yh-intel.cn](https://yh-intel.cn/)  
+Official service: [yh-intel.cn](https://yh-intel.cn/)
+
 Contact: [bot@yh-intel.com](mailto:bot@yh-intel.com) — expected response within one week.
 
 ## Security
