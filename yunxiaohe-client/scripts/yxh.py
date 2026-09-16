@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dependency-free CLI for the public YunXiaoHe Skill API.
 
-The raw access token is never printed. Customer passwords are accepted only by
-the interactive login command and are never written to disk.
+The customer-managed API key is accepted only by an interactive, no-echo
+prompt and is never printed by this CLI.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def _dpapi_protect(raw: bytes) -> bytes:
     outgoing = _DataBlob()
     crypt32 = ctypes.windll.crypt32
     kernel32 = ctypes.windll.kernel32
-    if not crypt32.CryptProtectData(ctypes.byref(incoming), "YunXiaoHe Skill token", None, None, None,
+    if not crypt32.CryptProtectData(ctypes.byref(incoming), "YunXiaoHe Skill API key", None, None, None,
                                     0x1, ctypes.byref(outgoing)):
         raise ctypes.WinError()
     try:
@@ -173,27 +173,17 @@ def _atomic_json(path: Path, value: dict) -> None:
             pass
 
 
-def _save_credential(response: dict) -> dict:
-    required = {"access_token", "token_type", "expires_at", "token_id", "version"}
-    if not isinstance(response, dict) or set(response) != required:
-        raise CLIError("Login response did not match the public Skill contract")
-    token = response["access_token"]
-    if (not isinstance(token, str) or not TOKEN_RE.fullmatch(token)
-            or response["token_type"] != "Bearer"
-            or not isinstance(response["expires_at"], int)
-            or not isinstance(response["token_id"], str)
-            or not re.fullmatch(r"[0-9a-f]{12}", response["token_id"])):
-        raise CLIError("Login response did not match the public Skill contract")
+def _save_api_key(token: str) -> dict:
+    if not isinstance(token, str) or not TOKEN_RE.fullmatch(token):
+        raise CLIError("API key format is invalid")
     config = {
-        "schema": "yh.skill-credential.v1",
+        "schema": "yh.skill-credential.v2",
         "api_base": _api_base(),
         "protected_access_token": _protect_token(token),
-        "expires_at": response["expires_at"],
-        "token_id": response["token_id"],
-        "version": response["version"],
+        "credential_kind": "customer_api_key",
     }
     _atomic_json(_config_path(), config)
-    return {key: config[key] for key in ("expires_at", "token_id", "version")}
+    return {"credential_kind": config["credential_kind"]}
 
 
 def _load_credential() -> tuple[str, dict]:
@@ -202,14 +192,19 @@ def _load_credential() -> tuple[str, dict]:
         config = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError) as error:
         raise CLIError("No usable YunXiaoHe credential; run `python scripts/yxh.py login`") from error
-    required = {"schema", "api_base", "protected_access_token", "expires_at", "token_id", "version"}
-    if not isinstance(config, dict) or set(config) != required or config.get("schema") != "yh.skill-credential.v1":
+    if not isinstance(config, dict):
+        raise CLIError("Credential file is invalid; run login again")
+    legacy = {"schema", "api_base", "protected_access_token", "expires_at", "token_id", "version"}
+    current = {"schema", "api_base", "protected_access_token", "credential_kind"}
+    if set(config) == legacy and config.get("schema") == "yh.skill-credential.v1":
+        if not isinstance(config["expires_at"], int) or config["expires_at"] <= int(time.time()):
+            raise CLIError("YunXiaoHe Skill token has expired; run login again")
+    elif not (set(config) == current and config.get("schema") == "yh.skill-credential.v2"
+              and config.get("credential_kind") == "customer_api_key"):
         raise CLIError("Credential file is invalid; run login again")
     _validate_base(config["api_base"])
     if config["api_base"] != _api_base():
         raise CLIError("Credential endpoint differs from the current API endpoint; run login again")
-    if not isinstance(config["expires_at"], int) or config["expires_at"] <= int(time.time()):
-        raise CLIError("YunXiaoHe Skill token has expired; run login again")
     return _unprotect_token(config["protected_access_token"]), config
 
 
@@ -230,11 +225,15 @@ def _error_message(raw: bytes) -> str:
     return "request rejected"
 
 
-def _request(method: str, path: str, payload=None, *, authenticate=True,
+def _request(method: str, path: str, payload=None, *, authenticate=True, access_token=None,
              timeout=600, expect_json=True) -> tuple[bytes, dict]:
     relative = _safe_relative(path)
     headers = {"Accept": "application/json", "User-Agent": "yunxiaohe-codex-skill/1.0"}
-    if authenticate:
+    if access_token is not None:
+        if not TOKEN_RE.fullmatch(access_token):
+            raise CLIError("API key format is invalid")
+        headers["Authorization"] = "Bearer " + access_token
+    elif authenticate:
         token, _config = _load_credential()
         headers["Authorization"] = "Bearer " + token
     body = None
@@ -252,7 +251,7 @@ def _request(method: str, path: str, payload=None, *, authenticate=True,
     except urllib.error.HTTPError as error:
         raw = error.read(64 * 1024)
         if error.code == 401:
-            raise APIError(error.code, "token invalid or expired; run login again") from None
+            raise APIError(error.code, "API key invalid or disabled; choose an active key and run login again") from None
         raise APIError(error.code, _error_message(raw)) from None
     except (urllib.error.URLError, TimeoutError, ssl.SSLError, OSError) as error:
         raise CLIError(f"Could not reach the YunXiaoHe Skill API: {error}") from None
@@ -263,8 +262,9 @@ def _request(method: str, path: str, payload=None, *, authenticate=True,
     return raw, response_headers
 
 
-def _json_request(method: str, path: str, payload=None, *, authenticate=True, timeout=600):
-    raw, _headers = _request(method, path, payload, authenticate=authenticate, timeout=timeout)
+def _json_request(method: str, path: str, payload=None, *, authenticate=True, access_token=None, timeout=600):
+    raw, _headers = _request(method, path, payload, authenticate=authenticate,
+                             access_token=access_token, timeout=timeout)
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -281,27 +281,21 @@ def _require_id(value: str, pattern: re.Pattern, label: str) -> str:
     return value
 
 
-def command_login(args) -> None:
-    username = (args.username or input("Registered YH customer username: ")).strip()
-    if not username or len(username) > 128:
-        raise CLIError("Invalid username")
-    password = getpass.getpass("YH customer password (not stored): ")
-    if not password:
-        raise CLIError("Password cannot be empty")
-    response = _json_request("POST", "login", {"username": username, "password": password},
-                             authenticate=False, timeout=30)
-    password = ""  # Minimize the lifetime of the Python reference.
-    safe = _save_credential(response)
+def command_login(_args) -> None:
+    token = getpass.getpass("YH API key (input hidden): ").strip()
+    if not TOKEN_RE.fullmatch(token):
+        raise CLIError("API key format is invalid")
+    capabilities = _json_request("GET", "capabilities", authenticate=False,
+                                 access_token=token, timeout=30)
+    if not isinstance(capabilities, dict) or "interaction" not in capabilities:
+        raise CLIError("API key validation returned an invalid capability document")
+    safe = _save_api_key(token)
+    token = ""  # Minimize the lifetime of the Python reference.
     _print({"authenticated": True, **safe, "credential_path": str(_config_path())})
 
 
 def command_logout(_args) -> None:
     path = _config_path()
-    try:
-        _request("POST", "logout", {}, timeout=30, expect_json=False)
-    except APIError as error:
-        if error.status != 401:
-            raise
     try:
         path.unlink()
     except FileNotFoundError:
@@ -443,11 +437,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Use YunXiaoHe as a structured Codex Skill")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    login = commands.add_parser("login", help="exchange a registered customer credential for a Skill token")
-    login.add_argument("--username")
+    login = commands.add_parser("login", help="store and validate a customer-managed API key")
     login.set_defaults(func=command_login)
 
-    logout = commands.add_parser("logout", help="revoke this device's Skill token")
+    logout = commands.add_parser("logout", help="remove the API key copy stored on this device")
     logout.set_defaults(func=command_logout)
 
     for name, help_text in (("capabilities", "show the stable Skill contract"),

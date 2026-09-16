@@ -51,12 +51,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = self._record()
-        if self.path == BASE_PATH + "login":
-            self._reply(200, {"access_token": TOKEN, "token_type": "Bearer", "expires_at": 2_000_000_000,
-                              "token_id": "a1b2c3d4e5f6", "version": "0.3.9.8"})
-        elif self.path == BASE_PATH + "logout":
-            self._reply(204, b"")
-        elif self.path == BASE_PATH + "tasks":
+        if self.path == BASE_PATH + "tasks":
             self._reply(201, {"id": "task-0123456789ab", "received": json.loads(body)})
         elif self.path == BASE_PATH + "pis/pi-0123456789ab/exports/pdf":
             self._reply(200, b"%PDF-1.4\nsynthetic\n%%EOF\n", "application/pdf")
@@ -92,16 +87,15 @@ class CLITests(unittest.TestCase):
         return code, stdout.getvalue(), stderr.getvalue()
 
     def login(self):
-        with patch.object(yxh.getpass, "getpass", return_value="synthetic-password"):
-            code, output, error = self.run_cli(["login", "--username", "customer.one"])
+        with patch.object(yxh.getpass, "getpass", return_value=TOKEN):
+            code, output, error = self.run_cli(["login"])
         self.assertEqual((0, ""), (code, error))
         self.assertNotIn(TOKEN, output)
-        self.assertNotIn("synthetic-password", output)
         self.assertTrue(self.config.exists())
         method, path, headers, body = FixtureHandler.calls[-1]
-        self.assertEqual(("POST", BASE_PATH + "login"), (method, path))
-        self.assertNotIn("Authorization", headers)
-        self.assertEqual("customer.one", json.loads(body)["username"])
+        self.assertEqual(("GET", BASE_PATH + "capabilities"), (method, path))
+        self.assertEqual("Bearer " + TOKEN, headers["Authorization"])
+        self.assertEqual(b"", body)
 
     def test_login_bearer_dispatch_wait_export_and_logout(self):
         self.login()
@@ -136,6 +130,7 @@ class CLITests(unittest.TestCase):
         code, output, error = self.run_cli(["logout"])
         self.assertEqual((0, ""), (code, error))
         self.assertFalse(self.config.exists())
+        self.assertNotEqual(BASE_PATH + "logout", FixtureHandler.calls[-1][1])
 
     def test_invalid_id_endpoint_and_pdf_fail_closed(self):
         self.login()

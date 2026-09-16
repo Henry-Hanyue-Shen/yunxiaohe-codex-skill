@@ -4,21 +4,13 @@ Official base URL:
 
 `https://yh-intel.cn/client/yunxiaohe/skill/v1/`
 
-All responses are private and `no-store`. The service does not enable CORS. Except for `login`, every request requires `Authorization: Bearer yhsk_...`. Browser cookies are not accepted on this surface.
+All responses are private and `no-store`. The service does not enable CORS. Every request requires `Authorization: Bearer yhsk_...`. Browser cookies are not accepted on this surface.
 
 ## Authentication
 
-### `POST login`
+Sign in at `https://yh-intel.cn/client/` and open **Codex API keys**. Each registered customer may keep at most three active keys. The customer center can display an active key again and can disable each key individually. Keys are tenant-scoped and fail immediately when disabled, when the account password is changed/reset, when the account is disabled, or when YunXiaoHe access is removed.
 
-```json
-{"username":"registered-user","password":"entered-locally"}
-```
-
-Returns a tenant-scoped, seven-day, revocable token. A customer may have at most five active Skill tokens; issuing another revokes the oldest. The CLI never prints the raw token. Login fails when the account is disabled, still requires its initial password change, or lacks a YunXiaoHe entitlement.
-
-### `POST logout`
-
-Body: `{}`. Revokes exactly the presented token.
+Run `python scripts/yxh.py login` and enter a key only in the hidden local prompt. The CLI validates it with `GET capabilities`, never prints it, and stores only a protected device-local copy. CLI `logout` removes that local copy; remote disable remains an explicit customer-center action.
 
 ## Discovery and State
 
@@ -125,12 +117,12 @@ The CLI validates PDF signatures before saving and uses atomic file replacement.
 ## Errors
 
 - `400` malformed or ambiguous request.
-- `401` invalid, expired, or revoked Skill token; re-run local login.
+- `401` invalid or disabled API key; choose an active key and re-run local login.
 - `403` browser ambient credentials, missing product authority, or disallowed request context.
 - `404` endpoint/ID not available to this tenant.
 - `413` body too large.
 - `415` JSON content type required.
-- `429` bounded login or tenant concurrency rate limit.
+- `429` bounded tenant concurrency rate limit.
 - `503` verified origin/runtime is temporarily unavailable.
 
 Never retry mutations blindly. State reads may be retried; after an uncertain mutation, call `state` and reconcile by returned IDs before deciding whether to submit again.

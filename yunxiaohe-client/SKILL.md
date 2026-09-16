@@ -9,15 +9,15 @@ Use the bundled, dependency-free CLI. It talks only to the official tenant-scope
 
 ## Authenticate
 
-If no valid token is available, ask the user to run this themselves in a local terminal:
+If no valid key is available, ask the user to sign in at `https://yh-intel.cn/client/`, open **Codex API keys**, create or select a key, and then run this themselves in a local terminal:
 
 ```bash
-python scripts/yxh.py login --username THEIR_REGISTERED_USERNAME
+python scripts/yxh.py login
 ```
 
-Never ask the user to paste their password or access token into chat. `login` reads the password without echo, exchanges it over HTTPS, and stores only the issued token locally. On Windows it encrypts the token with DPAPI; on POSIX it uses a mode-0600 file. Password changes, account disable/reset, YXH entitlement removal, explicit logout, or expiry revoke access.
+Never ask the user to paste their password or API key into chat. `login` reads the API key without echo, verifies it against the official API, and stores it only in the local credential file. On Windows it encrypts the key with DPAPI; on POSIX it uses a mode-0600 file. Password changes, account disable/reset, YXH entitlement removal, or manual disable in the customer center revoke access. CLI `logout` removes only the device-local copy.
 
-An account must already exist, have completed its initial password change, and have YunXiaoHe enabled by an administrator. This skill cannot register accounts or grant products.
+An account must already exist, have completed its initial password change, and have YunXiaoHe enabled by an administrator. Each account may keep at most three active API keys. This skill cannot register accounts, create keys, or grant products.
 
 ## Discover Before Acting
 
