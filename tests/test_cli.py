@@ -144,6 +144,13 @@ class CLITests(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("non-official", error)
 
+    def test_local_workspace_is_available_without_authentication(self):
+        code, output, error = self.run_cli(["local", "--help"])
+        self.assertEqual((0, ""), (code, error))
+        self.assertIn("device-local YunXiaoHe workspace", output)
+        self.assertFalse(self.config.exists())
+        self.assertEqual([], FixtureHandler.calls)
+
 
 if __name__ == "__main__":
     unittest.main()

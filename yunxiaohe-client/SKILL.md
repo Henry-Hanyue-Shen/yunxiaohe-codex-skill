@@ -1,11 +1,27 @@
 ---
 name: yunxiaohe-client
-description: Use an authorized YH Intelligence customer account to run YunXiaoHe as a structured Codex skill. Applies when a registered user wants Codex to inspect their YXH workspace, create a PI, dispatch multi-agent research or production tasks, monitor workers and loops, make explicit proposal decisions, or export Markdown/PDF deliverables. This is the task and workflow API, not a chat wrapper.
+description: Use an authorized YH Intelligence customer account to run YunXiaoHe as a structured Codex skill, optionally with a device-local file workspace. Applies when a registered user wants Codex to inspect YXH state, create a PI, dispatch and monitor multi-agent work, control loops, export deliverables, or work with explicitly approved local files without consuming the server's 3 GB file quota. This is the task and workflow API plus a local data plane, not a chat wrapper or standalone GUI.
 ---
 
 # YunXiaoHe Client
 
 Use the bundled, dependency-free CLI. It talks only to the official tenant-scoped API and keeps the bearer token out of model-visible output.
+
+## Choose File Storage Deliberately
+
+- Use the existing cloud workspace when a remote YunXiaoHe worker must directly access an uploaded file. Cloud files count toward the account's server quota.
+- Use **Local Workspace Preview** when files should stay on the user's device and Codex can perform the file-dependent steps locally. Run `python scripts/yxh.py local status` before relying on an existing binding.
+- Never imply that a remote worker can dereference `local://...` references. The current public service receives neither the local path nor the file bytes. Sending an excerpt or derived result to a remote PI is a separate disclosure decision.
+
+Initialize and register only files the user selected:
+
+```bash
+python scripts/yxh.py local init PATH --name "Project workspace"
+python scripts/yxh.py local --workspace PATH add relative/file.csv --access metadata
+python scripts/yxh.py local --workspace PATH add relative/report.md --access full-text
+```
+
+Use `metadata` by default. `full-text` authorizes bounded local reads by this Skill; it does not authorize upload. Stage deliverables under `.yxh/outputs/<task-label>/` with `stage-output`. Do not bypass the local CLI's root, link, revision, or secret-file checks.
 
 ## Authenticate
 
@@ -86,3 +102,4 @@ For genuinely time-sensitive, bounded work, create or reuse a PI whose service-r
 - If the service returns an authorization error, stop and have the user reauthenticate locally. Do not solicit credentials in chat.
 
 For complete command and endpoint schemas, read [references/api.md](references/api.md).
+For Local Workspace semantics and commands, read [references/local-workspace.md](references/local-workspace.md).

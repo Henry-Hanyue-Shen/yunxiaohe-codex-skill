@@ -10,6 +10,7 @@ import argparse
 import base64
 import ctypes
 import getpass
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ import urllib.request
 
 
 OFFICIAL_BASE = "https://yh-intel.cn/client/yunxiaohe/skill/v1/"
+CLI_VERSION = "1.2.0"
 TOKEN_RE = re.compile(r"yhsk_[A-Za-z0-9_-]{43}")
 PI_RE = re.compile(r"pi-[0-9a-f]{12}")
 TASK_RE = re.compile(r"task-[0-9a-f]{12}")
@@ -228,7 +230,7 @@ def _error_message(raw: bytes) -> str:
 def _request(method: str, path: str, payload=None, *, authenticate=True, access_token=None,
              timeout=600, expect_json=True) -> tuple[bytes, dict]:
     relative = _safe_relative(path)
-    headers = {"Accept": "application/json", "User-Agent": "yunxiaohe-codex-skill/1.0"}
+    headers = {"Accept": "application/json", "User-Agent": f"yunxiaohe-codex-skill/{CLI_VERSION}"}
     if access_token is not None:
         if not TOKEN_RE.fullmatch(access_token):
             raise CLIError("API key format is invalid")
@@ -433,6 +435,20 @@ def command_export(args) -> None:
     _print({"saved": str(target), "bytes": len(raw), "format": args.format})
 
 
+def command_local(args) -> int:
+    """Delegate to the network-free local workspace data plane."""
+    path = Path(__file__).with_name("local_workspace.py")
+    spec = importlib.util.spec_from_file_location("yxh_local_workspace", path)
+    if spec is None or spec.loader is None:
+        raise CLIError("Local Workspace component is unavailable; reinstall this Skill")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        return module.main(args.local_args or ["--help"])
+    except SystemExit as error:
+        return int(error.code or 0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Use YunXiaoHe as a structured Codex Skill")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -442,6 +458,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     logout = commands.add_parser("logout", help="remove the API key copy stored on this device")
     logout.set_defaults(func=command_logout)
+
+    local = commands.add_parser("local", add_help=False,
+                                help="use the device-local workspace data plane (preview)")
+    local.add_argument("local_args", nargs=argparse.REMAINDER)
+    local.set_defaults(func=command_local)
 
     for name, help_text in (("capabilities", "show the stable Skill contract"),
                             ("state", "read tenant-scoped workspace state"),
@@ -519,7 +540,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     try:
-        args = build_parser().parse_args(argv)
+        raw_arguments = list(sys.argv[1:] if argv is None else argv)
+        if raw_arguments[:1] == ["local"]:
+            return command_local(argparse.Namespace(local_args=raw_arguments[1:]))
+        args = build_parser().parse_args(raw_arguments)
         if getattr(args, "timeout", 1) <= 0 or getattr(args, "interval", 1) <= 0:
             raise CLIError("Timeout and interval must be positive")
         if getattr(args, "budget", 1000) < 256:
@@ -528,8 +552,8 @@ def main(argv=None) -> int:
             raise CLIError("Worker count must be between 1 and 16")
         if not 1 <= getattr(args, "agent_quota", 1) <= 32:
             raise CLIError("Agent quota must be between 1 and 32")
-        args.func(args)
-        return 0
+        result = args.func(args)
+        return result if isinstance(result, int) else 0
     except (CLIError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

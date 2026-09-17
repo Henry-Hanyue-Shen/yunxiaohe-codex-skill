@@ -80,6 +80,43 @@ Codex should inspect the service's current state and registries before choosing 
 
 Use a plain PI conversation for clarification or planning. Ask for a tracked task when you need workers, budgets, acceptance criteria, data boundaries, progress, and an exportable deliverable.
 
+### Optional: keep project files on this device
+
+If the files should remain local, initialize a Local Workspace instead of uploading them to the 3 GB cloud workspace. This is part of the installed Skill; there is no separate GUI or background service.
+
+PowerShell:
+
+```powershell
+py -3 scripts/yxh.py local init "C:\path\to\project" --name "Project name"
+py -3 scripts/yxh.py local --workspace "C:\path\to\project" add "data\input.csv" --access metadata
+```
+
+macOS or Linux:
+
+```bash
+python3 scripts/yxh.py local init /path/to/project --name "Project name"
+python3 scripts/yxh.py local --workspace /path/to/project add data/input.csv --access metadata
+```
+
+Choose `metadata` when the agent only needs the name, size, type, and content hash. Choose `full-text` only when the user wants Codex to read a UTF-8 text file locally. Neither choice uploads the file. A remote YunXiaoHe worker cannot open a `local://...` reference in the current preview, so keep file-dependent execution in Codex and share only explicitly approved summaries or extracts with the remote PI.
+
+Useful checks:
+
+```bash
+python scripts/yxh.py local --workspace /path/to/project status
+python scripts/yxh.py local --workspace /path/to/project list
+python scripts/yxh.py local --workspace /path/to/project verify
+python scripts/yxh.py local --workspace /path/to/project context
+```
+
+To record a finished artifact without uploading it:
+
+```bash
+python scripts/yxh.py local --workspace /path/to/project stage-output --task TASK_LABEL --source relative/result.md
+```
+
+The staged copy is written atomically to `.yxh/outputs/TASK_LABEL/`. Local Workspace has no artificial 3 GB quota; actual free disk space is shown by `status`.
+
 ## 5. Direct CLI walkthrough
 
 You normally do not need to run these commands yourself, but they show exactly what the Skill does.
@@ -142,3 +179,5 @@ To revoke the key itself, disable it in **Codex API keys** in the customer cente
 If a create or dispatch request ends with an uncertain network result, read `state` first. Reconcile the returned PI and task IDs before submitting anything again.
 
 For endpoint schemas, read the [public API reference](../yunxiaohe-client/references/api.md). For account help, contact [bot@yh-intel.com](mailto:bot@yh-intel.com); expected response is within one week.
+
+For local file boundaries and the full command contract, read the [Local Workspace reference](../yunxiaohe-client/references/local-workspace.md).
