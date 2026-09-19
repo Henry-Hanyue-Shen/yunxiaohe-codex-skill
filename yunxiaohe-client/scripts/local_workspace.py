@@ -37,6 +37,10 @@ BLOCKED_NAMES = {
     "id_ed25519", "id_rsa", "known_hosts", "netrc", ".netrc",
 }
 BLOCKED_SUFFIXES = {".key", ".p12", ".pfx", ".pem"}
+TEXT_SUFFIXES = {".csv", ".json", ".jsonl", ".log", ".md", ".py", ".risa", ".tex",
+                 ".text", ".toml", ".tsv", ".txt", ".yaml", ".yml"}
+TEXT_ENCODINGS = ("auto", "utf-8", "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be",
+                  "utf-32", "utf-32-le", "utf-32-be", "gb18030", "cp1252")
 
 
 class WorkspaceError(RuntimeError):
@@ -334,6 +338,70 @@ def command_verify(args) -> None:
         raise WorkspaceError("One or more registered files no longer match the approved revision")
 
 
+def _decode_text_window(raw: bytes, *, prefix: bytes, offset: int, suffix: str,
+                        truncated: bool, requested: str) -> tuple[str, str, int]:
+    if requested != "auto":
+        decoder = requested
+        if offset and requested in {"utf-16", "utf-32"}:
+            if prefix.startswith(b"\xff\xfe\x00\x00"):
+                decoder = "utf-32-le" if requested == "utf-32" else "utf-16-le"
+            elif prefix.startswith(b"\x00\x00\xfe\xff"):
+                decoder = "utf-32-be" if requested == "utf-32" else "utf-16-be"
+            elif prefix.startswith(b"\xff\xfe"):
+                decoder = "utf-16-le" if requested == "utf-16" else decoder
+            elif prefix.startswith(b"\xfe\xff"):
+                decoder = "utf-16-be" if requested == "utf-16" else decoder
+            if decoder == requested:
+                raise WorkspaceError("A continued UTF-16/32 read needs a file BOM or an explicit endian encoding")
+        if offset and decoder == "utf-8-sig":
+            decoder = "utf-8"
+        encodings = (decoder,)
+    elif prefix.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        encodings = ("utf-32" if offset == 0 else
+                     ("utf-32-le" if prefix.startswith(b"\xff\xfe") else "utf-32-be"),)
+    elif prefix.startswith((b"\xff\xfe", b"\xfe\xff")):
+        encodings = ("utf-16" if offset == 0 else
+                     ("utf-16-le" if prefix.startswith(b"\xff\xfe") else "utf-16-be"),)
+    elif prefix.startswith(b"\xef\xbb\xbf"):
+        encodings = ("utf-8-sig" if offset == 0 else "utf-8",)
+    else:
+        encodings = ("utf-8", "gb18030")
+        if suffix in {".csv", ".tsv", ".txt"}:
+            encodings += ("cp1252",)
+
+    for decoder in encodings:
+        body = raw
+        try:
+            content = body.decode(decoder)
+        except UnicodeDecodeError as error:
+            if not (truncated and error.end == len(body) and error.start >= len(body) - 4
+                    and error.reason in {"unexpected end of data", "truncated data", "incomplete multibyte sequence"}):
+                continue
+            body = body[:error.start]
+            try:
+                content = body.decode(decoder)
+            except UnicodeDecodeError:
+                continue
+        if "\x00" in content or sum(ord(char) < 32 and char not in "\n\r\t" for char in content) > max(4, len(content) // 200):
+            continue
+        if decoder == "gb18030" and requested == "auto" and suffix in {".csv", ".tsv", ".txt"}:
+            try:
+                western = body.decode("cp1252")
+            except UnicodeDecodeError:
+                pass
+            else:
+                suspicious = any(
+                    "\u4e00" <= char <= "\u9fff" and index > 0 and index + 1 < len(content)
+                    and content[index - 1].isascii() and content[index - 1].isalpha()
+                    and content[index + 1].isascii() and content[index + 1].isalpha()
+                    for index, char in enumerate(content)
+                )
+                if suspicious and not any(ord(char) < 32 and char not in "\n\r\t" for char in western):
+                    return western, "cp1252", len(body)
+        return content, decoder, len(body)
+    raise WorkspaceError("File is not readable text in the selected encoding; choose --encoding for an ambiguous CSV or use metadata mode for binary files")
+
+
 def command_read(args) -> None:
     if args.max_bytes < 4 or args.max_bytes > MAX_READ_BYTES or args.offset < 0:
         raise WorkspaceError(f"Read range must be at least 4 and no larger than {MAX_READ_BYTES} bytes")
@@ -343,32 +411,28 @@ def command_read(args) -> None:
     if entry.get("access") != "full-text":
         raise WorkspaceError("This file is metadata-only; re-run `add --access full-text` with user authorization")
     target = _current_file(root, entry, verify_hash=True)
+    if target.suffix.casefold() not in TEXT_SUFFIXES:
+        raise WorkspaceError("Full-text reads accept allowlisted text files only; use metadata mode for binary files")
+    if args.offset > entry["bytes"]:
+        raise WorkspaceError("Read offset exceeds the approved file size")
     with target.open("rb") as stream:
+        prefix = stream.read(4)
         stream.seek(args.offset)
         window = stream.read(args.max_bytes + 4)
     raw = window[:args.max_bytes]
-    decoder = "utf-8-sig" if args.offset == 0 else "utf-8"
-    while True:
-        try:
-            content = raw.decode(decoder)
-            break
-        except UnicodeDecodeError as error:
-            trailing_partial = error.end == len(raw) and error.start >= max(0, len(raw) - 4)
-            if trailing_partial and error.start > 0:
-                raw = raw[:error.start]
-                continue
-            raise WorkspaceError(
-                "Full-text reads require UTF-8 and offsets returned by the previous read; "
-                "use metadata mode for binary files"
-            ) from error
-    next_offset = args.offset + len(raw)
+    content, encoding, consumed = _decode_text_window(
+        raw, prefix=prefix, offset=args.offset, suffix=target.suffix.casefold(),
+        truncated=args.offset + len(raw) < entry["bytes"], requested=args.encoding,
+    )
+    next_offset = args.offset + consumed
     truncated = next_offset < entry["bytes"]
     _print({
         "reference": args.reference,
         "path": entry["path"],
         "sha256": entry["sha256"],
         "offset": args.offset,
-        "bytes_read": len(raw),
+        "bytes_read": consumed,
+        "encoding": encoding,
         "next_offset": next_offset if truncated else None,
         "truncated": truncated,
         "content": content,
@@ -491,10 +555,11 @@ def build_parser() -> argparse.ArgumentParser:
     verify = commands.add_parser("verify", help="rehash every registered file")
     verify.set_defaults(func=command_verify)
 
-    read = commands.add_parser("read", help="read an approved UTF-8 file through its opaque local reference")
+    read = commands.add_parser("read", help="read approved local text, including common CSV encodings")
     read.add_argument("reference")
     read.add_argument("--offset", type=int, default=0)
     read.add_argument("--max-bytes", type=int, default=DEFAULT_READ_BYTES)
+    read.add_argument("--encoding", choices=TEXT_ENCODINGS, default="auto")
     read.set_defaults(func=command_read)
 
     remove = commands.add_parser("remove", help="remove a reference without deleting its file")

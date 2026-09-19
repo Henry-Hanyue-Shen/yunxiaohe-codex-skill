@@ -47,7 +47,7 @@ Metadata-only is the default:
 python scripts/yxh.py local --workspace PATH add relative/data.csv
 ```
 
-Allow bounded local UTF-8 reads:
+Allow bounded local text reads:
 
 ```bash
 python scripts/yxh.py local --workspace PATH add relative/notes.md --access full-text
@@ -75,7 +75,7 @@ python scripts/yxh.py local --workspace PATH context [LOCAL_REF ...]
 python scripts/yxh.py local --workspace PATH read LOCAL_REF --offset 0 --max-bytes 262144
 ```
 
-`list` performs a lightweight presence/size check. `verify` rehashes every registered file. `read` requires `full-text`, verifies the approved hash before reading, supports bounded chunks up to 8 MiB, and currently accepts UTF-8 text only.
+`list` performs a lightweight presence/size check. `verify` rehashes every registered file. `read` requires `full-text`, verifies the approved hash before reading, and supports bounded chunks up to 8 MiB. It accepts UTF-8 and BOM-marked UTF-16/32 text, plus common GB18030 and Windows-1252 CSV exports. The response reports the detected `encoding` and the next byte offset. For an ambiguous export, supply `--encoding gb18030` or `--encoding cp1252`, and reuse that choice when reading subsequent chunks. Only explicitly registered, allowlisted text files are read; binary formats require separate local tools or metadata mode. Encoding detection is not a guarantee of the document's semantic integrity.
 
 `context` contains no file contents or absolute paths. It is safe to use as a manifest, but its filenames and hashes can still be sensitive project metadata and should be shared only within the user's requested scope.
 
@@ -108,6 +108,8 @@ This removes only the manifest reference. It never deletes the user's source fil
 
 ## Planned Integration Gate
 
+The intended hybrid mode keeps YH customer authorization and the hosted DS/model service available, while a user-authorized Codex conversation (and, where the host supports it, Codex subagents) can accept PI-assigned local-worker jobs. The harness should route by task capability and data boundary, not by a hard-coded model. This is a target design, **not a capability in the current release**: no remote YXH task can currently spawn or control a Codex conversation through this Skill.
+
 Local Workspace should leave preview only after the public service defines and tests all of the following:
 
 - device pairing bound to a customer API key;
@@ -117,5 +119,7 @@ Local Workspace should leave preview only after the public service defines and t
 - explicit per-task file grants and revocation;
 - resumable failure semantics with no silent cloud upload;
 - end-to-end tests proving tenant isolation, path confinement, and correct offline behavior.
+
+The local worker must explicitly disclose which selected excerpts or derived data, if any, it sends to the hosted DS service. Keeping source files on the device does not mean a remote model can process their contents without data transmission. Losing the online YH authorization lease must stop new work; any in-flight job needs a bounded, receipt-backed failure or resume path rather than silently falling back to cloud storage.
 
 Until then, this Skill provides a real local storage and access layer for Codex, not a claimed remote-local execution bridge.

@@ -22,6 +22,7 @@ python scripts/yxh.py local --workspace PATH add relative/report.md --access ful
 ```
 
 Use `metadata` by default. `full-text` authorizes bounded local reads by this Skill; it does not authorize upload. Stage deliverables under `.yxh/outputs/<task-label>/` with `stage-output`. Do not bypass the local CLI's root, link, revision, or secret-file checks.
+For common non-UTF-8 CSV exports, use `local read LOCAL_REF --encoding gb18030` or `--encoding cp1252` if auto detection is ambiguous; use the returned byte offset and encoding for subsequent chunks. Do not forward full local file contents to the remote PI merely to work around an unavailable local-worker bridge.
 
 ## Authenticate
 

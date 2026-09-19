@@ -98,7 +98,7 @@ python3 scripts/yxh.py local init /path/to/project --name "Project name"
 python3 scripts/yxh.py local --workspace /path/to/project add data/input.csv --access metadata
 ```
 
-Choose `metadata` when the agent only needs the name, size, type, and content hash. Choose `full-text` only when the user wants Codex to read a UTF-8 text file locally. Neither choice uploads the file. A remote YunXiaoHe worker cannot open a `local://...` reference in the current preview, so keep file-dependent execution in Codex and share only explicitly approved summaries or extracts with the remote PI.
+Choose `metadata` when the agent only needs the name, size, type, and content hash. Choose `full-text` when the user wants Codex to read an allowlisted text file locally. CSV exports in UTF-8, BOM-marked UTF-16/32, GB18030, or Windows-1252 can be read in bounded chunks; specify `--encoding` if automatic detection is ambiguous. Neither choice uploads the file. A remote YunXiaoHe worker cannot open a `local://...` reference in the current preview, so keep file-dependent execution in Codex and share only explicitly approved summaries or extracts with the remote PI.
 
 Useful checks:
 

@@ -124,6 +124,59 @@ class LocalWorkspaceTests(unittest.TestCase):
         self.assertEqual((0, ""), (code, error))
         self.assertEqual(reference, json.loads(output)["registered"][0]["reference"])
 
+    def test_csv_encodings_are_local_and_chunk_safe(self):
+        self.init()
+        examples = (
+            ("gb.csv", "gb18030", "生产地址,状态\n南京,A\n"),
+            ("western.csv", "cp1252", "Adresse,Status\nMünchen,A\n"),
+            ("utf16.csv", "utf-16", "生产地址,状态\n南京,A\n"),
+        )
+        for filename, encoding, value in examples:
+            (self.root / filename).write_bytes(value.encode(encoding))
+            code, output, error = self.run_cli([
+                "--workspace", str(self.root), "add", filename, "--access", "full-text",
+            ])
+            self.assertEqual((0, ""), (code, error))
+            reference = json.loads(output)["registered"][0]["reference"]
+            offset, chunks = 0, []
+            for _ in range(100):
+                code, output, error = self.run_cli([
+                    "--workspace", str(self.root), "read", reference,
+                    "--offset", str(offset), "--max-bytes", "7", "--encoding", encoding,
+                ])
+                self.assertEqual((0, ""), (code, error), f"{filename} at offset {offset}")
+                result = json.loads(output)
+                chunks.append(result["content"])
+                self.assertFalse(result["file_contents_uploaded"])
+                if not result["truncated"]:
+                    break
+                self.assertGreater(result["next_offset"], offset)
+                offset = result["next_offset"]
+            self.assertEqual(value, "".join(chunks))
+
+            code, output, error = self.run_cli([
+                "--workspace", str(self.root), "read", reference,
+            ])
+            self.assertEqual((0, ""), (code, error), f"auto detection for {filename}")
+            self.assertEqual(value, json.loads(output)["content"])
+
+            if encoding == "utf-16":
+                self.assertEqual("utf-16", json.loads(output)["encoding"])
+
+    def test_binary_full_text_is_rejected(self):
+        self.init()
+        (self.root / "fake.csv").write_bytes(b"name,value\nA,\x00\x01\x02\xff\n")
+        code, output, error = self.run_cli([
+            "--workspace", str(self.root), "add", "fake.csv", "--access", "full-text",
+        ])
+        self.assertEqual((0, ""), (code, error))
+        reference = json.loads(output)["registered"][0]["reference"]
+        code, _output, error = self.run_cli([
+            "--workspace", str(self.root), "read", reference,
+        ])
+        self.assertEqual(2, code)
+        self.assertIn("not readable text", error)
+
     def test_scope_secret_guards_and_reference_removal(self):
         self.init()
         outside = Path(self.temp.name) / "outside.txt"
